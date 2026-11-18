@@ -65,12 +65,19 @@ VENDOR MASTER (CSV):
 {document_text}
 """
 
+def _parse_json(text: str) -> dict:
+    """Parse the model's reply, tolerating a ```json fence or text around the object."""
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1:
+        raise ValueError(f"model reply contains no JSON object: {text[:80]!r}")
+    return json.loads(text[start:end + 1])
+
 
 def extract(document_text: str, ref: ReferenceData) -> tuple[dict, list[LLMResponse]]:
     """Two passes: extract, then let the model double-check its own work (+2 points on the eval)."""
     client = get_client()
     first = client.complete(SYSTEM_PROMPT, build_extraction_prompt(document_text, ref))
-    data = json.loads(first.text)
+    data = _parse_json(first.text)
     second = client.complete(SYSTEM_PROMPT, build_verification_prompt(document_text, data, ref))
-    data = json.loads(second.text)
+    data = _parse_json(second.text)
     return data, [first, second]
