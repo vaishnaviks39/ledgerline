@@ -1,0 +1,3 @@
+```json
+{"document_type":"invoice","supplier_name":"Shakti Castings Pvt. Ltd.","supplier_gstin":"27AAPCS5512H1Z4","invoice_number":"SCPL/26-27/011","invoice_date":"2026-06-25","currency":"INR","subtotal":"70500.00","cgst":"6345.00","sgst":"6345.00","igst":"0.00","round_off":"0.00","total":"83190.00","bank_account":"1408201009983","ifsc":"TALB0001408","po_number":"PO-2026-0139","line_items":[{"description":"Grey Iron Casting - Pump Housing PH-40","quantity":"30","unit_price":"2350.00","amount":"70500.00"}],"needs_review":true,"review_reasons":["vendor_unknown"]}
+```

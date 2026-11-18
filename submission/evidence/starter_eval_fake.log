@@ -1,0 +1,2 @@
+cd backend && .venv/bin/python eval/run_eval.py
+Field accuracy: 75/288 = 26.0%

@@ -1,0 +1,4 @@
+cd backend && .venv/bin/python eval/run_eval.py
+skipping dev_001: Expecting property name enclosed in double quotes: line 5 column 37 (char 166)
+skipping dev_007: Extra data: line 30 column 1 (char 671)
+Field accuracy: 242/264 = 91.7%
