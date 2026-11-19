@@ -12,6 +12,7 @@ from .models import Invoice
 from .reference import ReferenceData
 from decimal import Decimal
 from datetime import date
+from .flags import flag_on
 
 GSTIN_PATTERN = re.compile(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]")
 GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -204,6 +205,15 @@ def check_vendor_new(inv: Invoice, vendor: dict | None) -> list[str]:
 def check_suspicious_content(raw_text: str) -> list[str]:
     return ["suspicious_content"] if any(p.search(raw_text) for p in SUSPICIOUS_PATTERNS) else []
 
+def check_line_items(inv: Invoice) -> list[str]:
+    """Flag LINE_ITEM_ARITHMETIC (ruling on disp_05; not in AP_POLICY.md):
+    quantity x unit price must equal the line amount within ₹1.00."""
+    for item in inv.line_items:
+        if item.quantity is None or item.unit_price is None:
+            continue
+        if abs(_dec(item.quantity) * _dec(item.unit_price) - _dec(item.amount)) > TOTALS_TOLERANCE:
+            return ["line_item_mismatch"]
+    return []
 
 def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice, raw_text: str = "") -> list[str]:
     vendor = find_vendor(ref, inv)
@@ -217,5 +227,6 @@ def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice, raw_t
         + check_foreign_currency(inv)
         + check_duplicate(conn, ref, inv)
         + check_bank_details(inv, vendor)
+        + (check_line_items(inv) if flag_on("LINE_ITEM_ARITHMETIC") else [])
         + check_suspicious_content(raw_text)
     )

@@ -244,3 +244,30 @@ def test_checksum_failure_is_reported_as_gstin_invalid(conn, ref):
     invoice = make_invoice(supplier_name="Orion Fasteners", supplier_gstin="06AAEFO3690B1ZL",
                            invoice_number="OF-26-0398", cgst=0.0, sgst=0.0, igst=18.0)
     assert "gstin_invalid" in run_checks(conn, ref, invoice)
+
+DISP_05_LINE = LineItem("Plug Gauge 20H7 Go/NoGo", 4.0, 3850.0, 15950.0)  # 4 x 3,850 = 15,400, not 15,950
+
+
+def test_line_arithmetic_is_not_checked_by_default(conn, ref, monkeypatch):
+    monkeypatch.delenv("LEDGERLINE_FLAG_LINE_ITEM_ARITHMETIC", raising=False)
+    invoice = make_invoice(line_items=[DISP_05_LINE])
+    assert "line_item_mismatch" not in run_checks(conn, ref, invoice)
+
+
+def test_wrong_line_arithmetic_is_flagged_when_flag_on(conn, ref, monkeypatch):
+    monkeypatch.setenv("LEDGERLINE_FLAG_LINE_ITEM_ARITHMETIC", "1")
+    invoice = make_invoice(line_items=[DISP_05_LINE])
+    assert "line_item_mismatch" in run_checks(conn, ref, invoice)
+
+
+def test_correct_line_arithmetic_is_not_flagged_when_flag_on(conn, ref, monkeypatch):
+    # dev_004: same vendor, same item, 4 x 3,850 = 15,400
+    monkeypatch.setenv("LEDGERLINE_FLAG_LINE_ITEM_ARITHMETIC", "1")
+    invoice = make_invoice(line_items=[LineItem("Plug Gauge 20H7 Go/NoGo", 4.0, 3850.0, 15400.0)])
+    assert "line_item_mismatch" not in run_checks(conn, ref, invoice)
+
+
+def test_line_arithmetic_within_one_rupee_is_fine(conn, ref, monkeypatch):
+    monkeypatch.setenv("LEDGERLINE_FLAG_LINE_ITEM_ARITHMETIC", "1")
+    invoice = make_invoice(line_items=[LineItem("Rounded rate", 3.0, 33.33, 100.00)])  # 99.99 vs 100.00
+    assert "line_item_mismatch" not in run_checks(conn, ref, invoice)
