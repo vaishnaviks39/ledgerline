@@ -63,3 +63,14 @@ def test_duplicate_of_paid_invoice(conn, ref):
 
 def test_new_invoice_is_not_a_duplicate(conn, ref):
     assert check_duplicate(conn, ref, make_invoice()) == []
+
+
+def test_intra_state_cgst_sgst_is_fine():
+    # Sitara (state 27) charging CGST+SGST to Meridian (state 27) is correct
+    assert check_tax_type(make_invoice()) == []
+
+
+def test_intra_state_igst_is_a_mismatch():
+    # dev_004: Maharashtra supplier charging IGST
+    invoice = make_invoice(cgst=0.0, sgst=0.0, igst=18.0)
+    assert check_tax_type(invoice) == ["tax_type_mismatch"]

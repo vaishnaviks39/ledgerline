@@ -13,7 +13,7 @@ from .reference import ReferenceData
 
 GSTIN_PATTERN = re.compile(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]")
 GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-BUYER_STATE_CODE = 27  # Maharashtra
+BUYER_STATE_CODE = "27"  # Maharashtra
 
 
 def gstin_checksum(first14: str) -> str:
@@ -50,16 +50,16 @@ def check_gstin(inv: Invoice) -> list[str]:
     return []
 
 
-def check_tax_type(inv: Invoice) -> list[str]:
-    if not inv.supplier_gstin:
+def check_tax_type(inv: Invoice, buyer_state: str = BUYER_STATE_CODE) -> list[str]:
+    """Policy: domestic documents only; compare GSTIN state code with the buyer's."""
+    if inv.currency != "INR" or not inv.supplier_gstin:
         return []
-    intra_state = inv.supplier_gstin[:2] == BUYER_STATE_CODE
+    intra_state = inv.supplier_gstin.strip()[:2] == str(buyer_state).strip().zfill(2)
     if intra_state and inv.igst > 0:
         return ["tax_type_mismatch"]
     if not intra_state and (inv.cgst > 0 or inv.sgst > 0):
         return ["tax_type_mismatch"]
     return []
-
 
 def check_totals(inv: Invoice) -> list[str]:
     if inv.total is None:
@@ -92,7 +92,7 @@ def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice) -> li
     return (
         check_gstin(inv)
         + check_vendor(vendor)
-        + check_tax_type(inv)
+        + check_tax_type(inv, ref.buyer.get("state_code", BUYER_STATE_CODE))
         + check_totals(inv)
         + check_duplicate(conn, ref, inv)
         + check_bank_details(inv, vendor)
