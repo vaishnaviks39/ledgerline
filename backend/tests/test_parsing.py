@@ -42,3 +42,38 @@ def test_parse_date_with_dots_is_day_first():
 def test_parse_date_month_first_for_us_vendors():
     # dev_014 CloudNimbus (country US): 04/03/2026 is 3 April
     assert parse_date("04/03/2026", month_first=True) == date(2026, 4, 3)
+
+import pytest
+
+
+def test_parse_amount_rs_prefix_and_slash_dash_suffix():
+    # dev_022
+    assert parse_amount("Rs. 87,128/-") == 87128.0
+
+
+def test_parse_amount_lakh():
+    # dev_005
+    assert parse_amount("₹1.2 lakh") == 120000.0
+
+
+def test_parse_amount_crore():
+    assert parse_amount("2.5 crore") == 25000000.0
+
+
+def test_parse_amount_dollar_sign():
+    # dev_014
+    assert parse_amount("$1,298.00") == 1298.0
+
+
+def test_parse_amount_usd_prefix():
+    # disp_03
+    assert parse_amount("USD 2,643.20") == 2643.2
+
+
+def test_parse_amount_parentheses_mean_negative():
+    assert parse_amount("(0.40)") == -0.4
+
+
+def test_parse_amount_rejects_unreadable_text():
+    with pytest.raises(ValueError):
+        parse_amount("twenty rupees")
