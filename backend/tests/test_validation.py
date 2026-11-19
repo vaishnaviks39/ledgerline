@@ -74,3 +74,15 @@ def test_intra_state_igst_is_a_mismatch():
     # dev_004: Maharashtra supplier charging IGST
     invoice = make_invoice(cgst=0.0, sgst=0.0, igst=18.0)
     assert check_tax_type(invoice) == ["tax_type_mismatch"]
+
+def test_totals_include_round_off():
+    # dev_001 pattern: 100 + 9 + 9 - 0.40 = 117.60
+    assert check_totals(make_invoice(round_off=-0.40, total=117.60)) == []
+
+
+def test_totals_difference_of_exactly_one_rupee_is_within_tolerance():
+    assert check_totals(make_invoice(total=119.00)) == []
+
+
+def test_totals_difference_over_one_rupee_is_a_mismatch():
+    assert check_totals(make_invoice(total=119.01)) == ["totals_mismatch"]

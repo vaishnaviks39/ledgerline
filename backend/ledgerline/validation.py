@@ -10,10 +10,12 @@ import sqlite3
 
 from .models import Invoice
 from .reference import ReferenceData
+from decimal import Decimal
 
 GSTIN_PATTERN = re.compile(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]")
 GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 BUYER_STATE_CODE = "27"  # Maharashtra
+TOTALS_TOLERANCE = Decimal("1.00")
 
 
 def gstin_checksum(first14: str) -> str:
@@ -61,11 +63,19 @@ def check_tax_type(inv: Invoice, buyer_state: str = BUYER_STATE_CODE) -> list[st
         return ["tax_type_mismatch"]
     return []
 
+
+def _dec(value) -> Decimal:
+    """Exact decimal from a stored amount (avoids binary floating point, policy)."""
+    return Decimal(str(value or 0))
+
+
 def check_totals(inv: Invoice) -> list[str]:
+    """Policy §3: lines + CGST + SGST + IGST + round-off vs total, ₹1.00 tolerance (inclusive)."""
     if inv.total is None:
         return []
-    computed = sum(item.amount for item in inv.line_items) + inv.cgst + inv.sgst + inv.igst
-    return [] if computed == inv.total else ["totals_mismatch"]
+    computed = (sum((_dec(item.amount) for item in inv.line_items), Decimal("0"))
+                + _dec(inv.cgst) + _dec(inv.sgst) + _dec(inv.igst) + _dec(inv.round_off))
+    return [] if abs(computed - _dec(inv.total)) <= TOTALS_TOLERANCE else ["totals_mismatch"]
 
 
 def check_duplicate(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice) -> list[str]:
