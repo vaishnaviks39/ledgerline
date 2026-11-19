@@ -103,8 +103,19 @@ def check_duplicate(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice) 
     return []
 
 
+def _digits(value: str | None) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
 def check_bank_details(inv: Invoice, vendor: dict | None) -> list[str]:
-    if vendor and inv.ifsc and vendor.get("ifsc") and inv.ifsc != vendor["ifsc"]:
+    """Policy §3: account digits-only, IFSC case-insensitive; skip if vendor unknown or no bank details shown."""
+    if not vendor:
+        return []
+    doc_account, doc_ifsc = _digits(inv.bank_account), (inv.ifsc or "").strip().upper()
+    if not doc_account and not doc_ifsc:
+        return []
+    file_account, file_ifsc = _digits(vendor.get("bank_account")), (vendor.get("ifsc") or "").strip().upper()
+    if (doc_account and doc_account != file_account) or (doc_ifsc and doc_ifsc != file_ifsc):
         return ["bank_details_changed"]
     return []
 

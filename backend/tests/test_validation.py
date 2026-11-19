@@ -158,3 +158,29 @@ def test_ordinary_invoice_text_is_not_suspicious(conn, ref):
     raw = ('From: "Konkan Tooling Pvt Ltd - Accounts" <ar@konkantooling.example>\n'
            "E. & O.E.   This is a Computer Generated Invoice\nPlease process urgently.")
     assert "suspicious_content" not in run_checks(conn, ref, make_invoice(), raw_text=raw)
+
+def test_changed_account_with_same_ifsc_is_flagged(conn, ref):
+    # dev_024: Sitara, same IFSC, different account
+    invoice = make_invoice(bank_account="50200012349999", ifsc="ZEPH0001234")
+    assert "bank_details_changed" in run_checks(conn, ref, invoice)
+
+
+def test_changed_account_and_ifsc_is_flagged(conn, ref):
+    # dev_005: Vardhan Logistics "our bank account has changed" email
+    invoice = make_invoice(supplier_name="Vardhan Logistics", supplier_gstin="27AAJFV6651D1ZZ",
+                           invoice_number="VL/0931", bank_account="7781002233445", ifsc="ORBK0002211")
+    assert "bank_details_changed" in run_checks(conn, ref, invoice)
+
+
+def test_same_bank_details_formatted_differently_are_not_a_change(conn, ref):
+    invoice = make_invoice(bank_account="5020 0012 345678", ifsc="zeph0001234")
+    assert "bank_details_changed" not in run_checks(conn, ref, invoice)
+
+
+def test_no_bank_details_on_document_is_not_a_change(conn, ref):
+    assert "bank_details_changed" not in run_checks(conn, ref, make_invoice(bank_account=None, ifsc=None))
+
+
+def test_unknown_vendor_bank_details_are_not_compared(conn, ref):
+    invoice = make_invoice(supplier_gstin="27AAQCA8124J1ZA", bank_account="50200081240001", ifsc="ZEPH0008124")
+    assert "bank_details_changed" not in run_checks(conn, ref, invoice)
