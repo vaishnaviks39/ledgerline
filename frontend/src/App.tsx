@@ -161,7 +161,7 @@ export default function App() {
               {selected.notes && (
                 <div className="callout">
                   <h3>Notes on the document</h3>
-                  <div dangerouslySetInnerHTML={{ __html: selected.notes }} />
+                  <div style={{ whiteSpace: "pre-wrap" }}>{selected.notes}</div>
                 </div>
               )}
 
