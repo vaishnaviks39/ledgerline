@@ -11,6 +11,7 @@ import sqlite3
 from .models import Invoice
 from .reference import ReferenceData
 from decimal import Decimal
+from datetime import date
 
 GSTIN_PATTERN = re.compile(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]")
 GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -107,14 +108,58 @@ def check_bank_details(inv: Invoice, vendor: dict | None) -> list[str]:
         return ["bank_details_changed"]
     return []
 
+CREDIT_NOTE_PATTERNS = [
+    re.compile(r'"Typ"\s*:\s*"CRN"'),  # e-invoice DocDtls.Typ
+    re.compile(r"^\s*credit\s+note\b", re.IGNORECASE | re.MULTILINE),  # a title line
+]
 
-def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice) -> list[str]:
-    vendor =  find_vendor(ref, inv)
+SUSPICIOUS_PATTERNS = [
+    # HTML or script markup (policy)
+    re.compile(r"<\s*/?\s*(script|img|iframe|svg|object|embed|style|link|meta|a)\b", re.IGNORECASE),
+    re.compile(r"\bon[a-z]+\s*=", re.IGNORECASE),
+    re.compile(r"javascript\s*:", re.IGNORECASE),
+    # Text addressed to automated systems or AI (policy)
+    re.compile(r"\b(ai|llm|gpt|chatgpt|language model)s?\b", re.IGNORECASE),
+    re.compile(r"\bautomat(ed|ion)\s+(\w+\s+){0,2}(processing|system|assistant)s?\b", re.IGNORECASE),
+    re.compile(r"\b(requires?_review|needs_review|review_reasons)\b", re.IGNORECASE),
+    re.compile(r"\b(ignore|disregard|skip)\b.{0,40}\b(instruction|check|rule|polic|review)", re.IGNORECASE),
+    re.compile(r"\bpre-?(verified|approved)\b", re.IGNORECASE),
+]
+
+
+def check_credit_note(inv: Invoice, raw_text: str) -> list[str]:
+    if inv.document_type == "credit_note" or any(p.search(raw_text) for p in CREDIT_NOTE_PATTERNS):
+        return ["credit_note"]
+    return []
+
+
+def check_foreign_currency(inv: Invoice) -> list[str]:
+    return [] if (inv.currency or "INR").strip().upper() == "INR" else ["foreign_currency"]
+
+
+def check_vendor_new(inv: Invoice, vendor: dict | None) -> list[str]:
+    """Policy: onboarded fewer than 90 days before the document date."""
+    if not vendor or not inv.invoice_date or not vendor.get("onboarded_on"):
+        return []
+    onboarded = date.fromisoformat(vendor["onboarded_on"].strip())
+    return ["vendor_new"] if (inv.invoice_date - onboarded).days < 90 else []
+
+
+def check_suspicious_content(raw_text: str) -> list[str]:
+    return ["suspicious_content"] if any(p.search(raw_text) for p in SUSPICIOUS_PATTERNS) else []
+
+
+def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice, raw_text: str = "") -> list[str]:
+    vendor = find_vendor(ref, inv)
     return (
-        check_gstin(inv)
+        check_credit_note(inv, raw_text)
+        + check_gstin(inv)
         + check_vendor(vendor)
+        + check_vendor_new(inv, vendor)
         + check_tax_type(inv, ref.buyer.get("state_code", BUYER_STATE_CODE))
         + check_totals(inv)
+        + check_foreign_currency(inv)
         + check_duplicate(conn, ref, inv)
         + check_bank_details(inv, vendor)
+        + check_suspicious_content(raw_text)
     )

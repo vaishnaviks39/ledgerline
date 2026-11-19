@@ -61,7 +61,7 @@ def process_document(
     # Code decides routing (policy). The model may only add reasons in MODEL_ADDABLE_REASONS;
     # it can never remove a reason, and its yes/no answer is not used.
 
-    code_reasons = run_checks(conn, ref, inv)
+    code_reasons =  run_checks(conn, ref, inv, raw_text)
     model_raw = data.get("review_reasons") or []
 
     if isinstance(model_raw, str):
