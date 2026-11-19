@@ -2,7 +2,7 @@
 
 Tool: Claude (claude.ai chat, Claude Opus 5.5)
 
-Shared conversation: https://claude.ai/chat/e8340d9a-91a3-46a3-a208-5e2a3165a97c
+Shared conversation: https://claude.ai/share/da59e2df-306c-4427-996c-230da1b7fc6a
 
 This chat began during my first hour (reading the code and planning) and continued through the baseline,
 the fixes, the rulings and the write-ups.
