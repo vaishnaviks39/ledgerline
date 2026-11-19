@@ -1,0 +1,18 @@
+== Starter (+ fence fix) (submission/evidence/starter_dev.db)
+documents 24, LLM calls 48
+tokens per document: input 10000, output 806
+cost per document: real ₹0.1746, recorded by the app ₹0.0002
+latency per document (s): p50 10.66, p95 14.02, max 14.43
+
+== Mine, run 1 (submission/evidence/mine_dev.db)
+documents 24, LLM calls 48
+tokens per document: input 1739, output 571
+cost per document: real ₹0.0531, recorded by the app ₹0.0531
+latency per document (s): p50 7.51, p95 9.96, max 10.29
+
+== Mine, run 2 (submission/evidence/mine_dev_run2.db)
+documents 24, LLM calls 48
+tokens per document: input 1738, output 569
+cost per document: real ₹0.0530, recorded by the app ₹0.0530
+latency per document (s): p50 7.77, p95 10.72, max 13.82
+

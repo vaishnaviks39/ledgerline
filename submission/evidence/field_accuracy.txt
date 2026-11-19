@@ -1,0 +1,3 @@
+Starter: all 24 docs 258/288 = 89.6% | leaked dev_001-003 removed 226/252 = 89.7%
+Mine run 1: all 24 docs 285/288 = 99.0% | leaked dev_001-003 removed 250/252 = 99.2%
+Mine run 2: all 24 docs 285/288 = 99.0% | leaked dev_001-003 removed 250/252 = 99.2%
