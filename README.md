@@ -171,4 +171,10 @@ submission/               templates for your write-ups
 
 ## Running my version
 
-_Describe anything that changed about setup or commands._
+## Running my version
+
+- Provider used: `LLM_PROVIDER=openai_compat`, `LLM_MODEL=gpt-4o-mini`, `OPENAI_BASE_URL=https://api.openai.com/v1`.
+- Setup and commands are unchanged (`make setup`, `make test`, `make predict`, `make eval`).
+- `make predict` writes `predictions_disputed.jsonl` with `LEDGERLINE_FLAG_LINE_ITEM_ARITHMETIC=1` and `LEDGERLINE_FLAG_FUTURE_DATED_INVOICE=1`. Everything else, including the batch command in OUTPUT_CONTRACT.md, runs with all flags off (the written policy).
+- If you have an old `backend/ledgerline.db` from the starter, delete it: new unique indexes cannot be created over duplicate payments.
+- `python eval/compare_predictions.py <predictions.jsonl>` (from `backend/`) compares routing with the dev labels.
