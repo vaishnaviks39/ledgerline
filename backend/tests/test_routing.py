@@ -27,12 +27,12 @@ def test_unreliable_model_reason_does_not_route(conn, ref, monkeypatch):
     assert inv["status"] == "ready_for_approval"
 
 
-def test_model_can_add_suspicious_content(conn, ref, monkeypatch):
-    # Model answers with needs_review (wrong key) but lists suspicious_content
+def test_model_suspicious_content_is_only_a_warning(conn, ref, monkeypatch):
+    # The model's flag is shown to the reviewer but does not route (dev-run false positives)
     inv = run_with_model_reply(conn, ref, monkeypatch, requires_review=False,
                                review_reasons=["suspicious_content"])
-    assert inv["needs_review"] is True
-    assert inv["review_reasons"] == ["suspicious_content"]
+    assert inv["needs_review"] is False
+    assert "model suggested suspicious_content (not applied)" in inv["warnings"]
 
 
 def test_unknown_codes_from_model_are_ignored(conn, ref, monkeypatch):
