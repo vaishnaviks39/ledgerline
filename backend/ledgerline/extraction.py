@@ -95,13 +95,18 @@ def _parse_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-def extract(document_text: str, ref: ReferenceData) -> tuple[dict, list[LLMResponse]]:
-    """Two passes on the masked document: extract, then let the model check its own work."""
+def extract(document_text: str, ref: ReferenceData,
+            calls: list[LLMResponse] | None = None) -> tuple[dict, list[LLMResponse]]:
+    """Two passes on the masked document. Each call is appended to `calls` as soon as it returns,
+    so calls made before a failure are still recorded and costed."""
+    calls = [] if calls is None else calls
     client = get_client()
     masked_text, accounts = mask_accounts(document_text)
     first = client.complete(SYSTEM_PROMPT, build_extraction_prompt(masked_text, ref))
+    calls.append(first)
     data = _parse_json(first.text)
     second = client.complete(SYSTEM_PROMPT, build_verification_prompt(masked_text, data, ref))
+    calls.append(second)
     data = _parse_json(second.text)
     data["bank_account"] = restore_account(data.get("bank_account"), accounts)
-    return data, [first, second]
+    return data, calls

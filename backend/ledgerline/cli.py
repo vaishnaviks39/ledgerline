@@ -34,22 +34,30 @@ def to_contract(invoice: dict) -> dict:
     out["usage"] = invoice["usage"]
     return out
 
+def failure_line(document_id: str) -> dict:
+    """Output contract: never skip a document. Used only if processing itself crashed."""
+    out = {"document_id": document_id}
+    out.update({f: None for f in TEXT_FIELDS})
+    out.update({f: None for f in MONEY_FIELDS})
+    out.update(line_items=[], needs_review=True, review_reasons=["processing_error"], required_approvals=1,
+               usage={"llm_calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_inr": 0.0, "latency_ms": 0})
+    return out
 
 def predict(args: argparse.Namespace) -> None:
     ref = load_reference(args.reference)
     db_path = args.db or str(Path(tempfile.mkdtemp(prefix="ledgerline-")) / "predict.db")
     conn = db.connect(db_path)
-    documents = sorted(p for p in Path(args.input).iterdir() if p.suffix in SUPPORTED_SUFFIXES)
+    documents = sorted(p for p in Path(args.input).iterdir() if p.suffix.lower() in SUPPORTED_SUFFIXES)
     written = 0
     with open(args.output, "w", encoding="utf-8") as out:
         for path in documents:
             try:
-                invoice = process_document(conn, ref, path.read_text(encoding="utf-8"), path.stem,
-                                           filename=path.name)
-            except Exception as exc:  # keep the batch going
-                print(f"[skip] {path.name}: {exc}", file=sys.stderr)
-                continue
-            out.write(json.dumps(to_contract(invoice), ensure_ascii=False) + "\n")
+                text = path.read_text(encoding="utf-8", errors="replace")
+                line = to_contract(process_document(conn, ref, text, path.stem, filename=path.name))
+            except Exception as exc:  # noqa: BLE001 - never skip a document (output contract)
+                print(f"[processing_error] {path.name}: {exc}", file=sys.stderr)
+                line = failure_line(path.stem)
+            out.write(json.dumps(line, ensure_ascii=False) + "\n")
             written += 1
     print(f"wrote {written}/{len(documents)} predictions to {args.output}")
 

@@ -74,3 +74,28 @@ def test_einvoice_crn_is_stored_as_credit_note_even_if_model_says_invoice(conn, 
     assert invoice["document_type"] == "credit_note"
     assert invoice["required_approvals"] == 0
     assert "duplicate" not in invoice["review_reasons"]
+
+def test_unparseable_model_reply_goes_to_review(conn, ref, monkeypatch):
+    client = FakeClient(["this is not JSON", "this is not JSON"])
+    monkeypatch.setattr("ledgerline.extraction.get_client", lambda: client)
+    invoice = process_document(conn, ref, "TEXT", "doc_broken")
+    assert invoice["needs_review"] is True
+    assert "processing_error" in invoice["review_reasons"]
+    assert invoice["status"] == "needs_review"
+
+
+def test_failed_calls_are_still_recorded(conn, ref, monkeypatch):
+    client = FakeClient(["this is not JSON", "this is not JSON"])
+    monkeypatch.setattr("ledgerline.extraction.get_client", lambda: client)
+    invoice = process_document(conn, ref, "TEXT", "doc_broken")
+    assert invoice["usage"]["llm_calls"] == 1
+
+
+def test_impossible_date_goes_to_review(conn, ref, monkeypatch):
+    invoice = run_with_reply(conn, ref, monkeypatch, invoice_date="31/02/2026")
+    assert "processing_error" in invoice["review_reasons"]
+
+
+def test_missing_total_goes_to_review(conn, ref, monkeypatch):
+    invoice = run_with_reply(conn, ref, monkeypatch, total=None)
+    assert "processing_error" in invoice["review_reasons"]

@@ -7,12 +7,14 @@ from dataclasses import asdict
 
 from . import db
 from .extraction import extract
+from .llm import LLMResponse
 from .llm.pricing import cost_usd
 from .models import Invoice, LineItem
 from .parsing import parse_amount, parse_date
 from .reference import ReferenceData
 from decimal import Decimal
-from .validation import MODEL_ADDABLE_REASONS, check_credit_note, normalize_name, run_checks
+from .validation import (MODEL_ADDABLE_REASONS, check_credit_note, check_suspicious_content,
+                         normalize_name, run_checks)
 
 HIGH_VALUE_THRESHOLD = Decimal("500000.00")  # policy §4.1: ₹5,00,000.00 or more needs two approvals
 
@@ -67,6 +69,45 @@ def normalize(data: dict, month_first: bool = False) -> Invoice:
         line_items=items,
     )
 
+def empty_invoice() -> Invoice:
+    return Invoice(document_type="invoice", supplier_name=None, supplier_gstin=None, invoice_number=None,
+                   invoice_date=None, currency="INR", subtotal=None, cgst=0.0, sgst=0.0, igst=0.0,
+                   round_off=0.0, total=None, bank_account=None, ifsc=None, po_number=None, notes=None)
+
+
+def decide(conn: sqlite3.Connection, ref: ReferenceData, raw_text: str,
+           calls: list[LLMResponse]) -> tuple[Invoice, list[str], list[str]]:
+    """Extract, normalise and check. Returns (invoice, review_reasons, warnings).
+
+    Code decides routing (policy §3); the model may only add MODEL_ADDABLE_REASONS. Any failure
+    becomes processing_error: the document goes to review and is never dropped.
+    """
+    try:
+        data, _ = extract(raw_text, ref, calls)
+        inv = normalize(data, month_first=vendor_country(ref, data) == "US")
+        if check_credit_note(inv, raw_text):  # code-detected credit note overrides the model
+            inv.document_type = "credit_note"
+        code_reasons = run_checks(conn, ref, inv, raw_text)
+    except Exception as exc:  # noqa: BLE001 - every failure must become a review, not a crash
+        inv = empty_invoice()
+        if check_credit_note(inv, raw_text):
+            inv.document_type = "credit_note"
+        reasons = {"processing_error", *check_credit_note(inv, raw_text), *check_suspicious_content(raw_text)}
+        return inv, sorted(reasons), [f"processing error: {type(exc).__name__}: {exc}"]
+
+    model_raw = data.get("review_reasons") or []
+    if isinstance(model_raw, str):
+        model_raw = [model_raw]
+    model_raw = [r for r in model_raw if isinstance(r, str)]
+    reasons = set(code_reasons) | {r for r in model_raw if r in MODEL_ADDABLE_REASONS}
+    warnings = []
+    if inv.total is None:
+        reasons.add("processing_error")
+        warnings.append("processing error: no total could be read")
+    review_reasons = sorted(reasons)
+    warnings += [f"model suggested {r} (not applied)" for r in model_raw if r not in review_reasons]
+    return inv, review_reasons, warnings
+
 
 def process_document(
     conn: sqlite3.Connection,
@@ -76,26 +117,9 @@ def process_document(
     org_id: str = "meridian",
     filename: str | None = None,
 ) -> dict:
-    data, responses = extract(raw_text, ref)
-    inv = normalize(data, month_first=vendor_country(ref, data) == "US")
-    # A credit note detected by code (e.g. e-invoice Typ CRN) overrides the model's document_type.
-    if check_credit_note(inv, raw_text):
-        inv.document_type = "credit_note"
-
-    # Code decides routing (policy). The model may only add reasons in MODEL_ADDABLE_REASONS;
-    # it can never remove a reason, and its yes/no answer is not used.
-
-    code_reasons =  run_checks(conn, ref, inv, raw_text)
-    model_raw = data.get("review_reasons") or []
-
-    if isinstance(model_raw, str):
-        model_raw = [model_raw]
-
-    model_added = [r for r in model_raw if r in MODEL_ADDABLE_REASONS]
-    review_reasons = sorted(set(code_reasons) | set(model_added))
+    calls: list[LLMResponse] = []
+    inv, review_reasons, warnings = decide(conn, ref, raw_text, calls)
     needs_review = bool(review_reasons)
-    # Keep the model's other suggestions visible to reviewers and for audit (policy).
-    warnings = [f"model suggested {r} (not applied)" for r in model_raw if r not in review_reasons]
 
     approvals_needed = required_approvals(inv)
     status = "needs_review" if needs_review else "ready_for_approval"
@@ -115,7 +139,7 @@ def process_document(
         ),
     )
     invoice_id = cur.lastrowid
-    for r in responses:
+    for r in calls:
         conn.execute(
             "INSERT INTO llm_calls (invoice_id, document_id, model, input_tokens, output_tokens, cost_usd, "
             "latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
