@@ -11,12 +11,21 @@ from .llm.pricing import cost_usd
 from .models import Invoice, LineItem
 from .parsing import parse_amount, parse_date
 from .reference import ReferenceData
-from .validation import MODEL_ADDABLE_REASONS, run_checks
+from .validation import MODEL_ADDABLE_REASONS, normalize_name, run_checks
 
 HIGH_VALUE_THRESHOLD = 500000  # invoices above this need two approvals
 
+def vendor_country(ref: ReferenceData, data: dict) -> str:
+    """Country of the matched vendor (GSTIN for domestic, normalised name otherwise); 'IN' if unknown."""
+    gstin = (data.get("supplier_gstin") or "").strip().upper()
+    name = normalize_name(data.get("supplier_name"))
+    for vendor in ref.vendors:
+        if (gstin and vendor["gstin"].strip().upper() == gstin) or (
+                not gstin and name and normalize_name(vendor["legal_name"]) == name):
+            return (vendor.get("country") or "IN").strip().upper()
+    return "IN"
 
-def normalize(data: dict) -> Invoice:
+def normalize(data: dict, month_first: bool = False) -> Invoice:
     items = [
         LineItem(
             description=str(item.get("description", "")),
@@ -31,7 +40,7 @@ def normalize(data: dict) -> Invoice:
         supplier_name=data.get("supplier_name"),
         supplier_gstin=data.get("supplier_gstin"),
         invoice_number=data.get("invoice_number"),
-        invoice_date=parse_date(data.get("invoice_date")),
+                invoice_date=parse_date(data.get("invoice_date"), month_first=month_first),
         currency=data.get("currency") or "INR",
         subtotal=parse_amount(data.get("subtotal")),
         cgst=parse_amount(data.get("cgst")) or 0.0,
@@ -56,7 +65,7 @@ def process_document(
     filename: str | None = None,
 ) -> dict:
     data, responses = extract(raw_text, ref)
-    inv = normalize(data)
+    inv = normalize(data, month_first=vendor_country(ref, data) == "US")
 
     # Code decides routing (policy). The model may only add reasons in MODEL_ADDABLE_REASONS;
     # it can never remove a reason, and its yes/no answer is not used.
