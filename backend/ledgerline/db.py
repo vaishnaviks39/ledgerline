@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     latency_ms INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_invoice ON payments(invoice_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_approvals_invoice_user ON approvals(invoice_id, user_id);
 """
 
 
