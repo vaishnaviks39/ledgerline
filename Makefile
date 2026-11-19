@@ -22,7 +22,6 @@ dev:
 
 predict:
 	cd backend && .venv/bin/python -m ledgerline.cli predict --input ../data/invoices/dev --reference ../data/reference --output ../submission/predictions_dev.jsonl
-	cd backend && .venv/bin/python -m ledgerline.cli predict --input ../data/invoices/disputed --reference ../data/reference --output ../submission/predictions_disputed.jsonl
-
+	cd backend && LEDGERLINE_FLAG_LINE_ITEM_ARITHMETIC=1 LEDGERLINE_FLAG_FUTURE_DATED_INVOICE=1 .venv/bin/python -m ledgerline.cli predict --input ../data/invoices/disputed --reference ../data/reference --output ../submission/predictions_disputed.jsonl
 eval:
 	cd backend && .venv/bin/python eval/run_eval.py
