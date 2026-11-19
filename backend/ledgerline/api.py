@@ -66,34 +66,52 @@ def _approval_count(conn, invoice_id: int) -> int:
                         (invoice_id,)).fetchone()[0]
 
 
+def _audit(conn, invoice_id: int, user_id: str, action: str, note: str, outcome: str) -> None:
+    """Policy §4.7: who, when, which document, the note, and what happened."""
+    conn.execute("INSERT INTO audit_log (invoice_id, user_id, action, note, outcome) VALUES (?, ?, ?, ?, ?)",
+                 (invoice_id, user_id or "(missing)", action, note, outcome))
+
+
+def _refuse(conn, invoice_id: int, user_id: str, action: str, note: str, status_code: int, detail: str):
+    _audit(conn, invoice_id, user_id, action, note, f"refused: {detail}")
+    conn.commit()
+    raise HTTPException(status_code=status_code, detail=detail)
+
+
 @app.post("/api/invoices/{invoice_id}/approve")
 def approve_invoice(invoice_id: int, body: DecisionRequest, conn=Depends(get_conn)):
     """Policy §4, enforced on the server. Safe under double-clicks and retries."""
     invoice = db.get_invoice(conn, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    user_id = body.user_id.strip()
-    if not user_id:
-        raise HTTPException(status_code=422, detail="user_id is required")
+    user_id, note = body.user_id.strip(), body.note
     required = max(int(invoice["required_approvals"]), 1)  # §4.3: never paid without a human approval
 
+    if not user_id:
+        _refuse(conn, invoice_id, user_id, "approve", note, 422, "user_id is required")
     if invoice["status"] == "approved":  # retry or double-click: change nothing
+        _audit(conn, invoice_id, user_id, "approve", note, "no change: already approved")
+        conn.commit()
         return {"id": invoice_id, "approvals": _approval_count(conn, invoice_id),
                 "required_approvals": required, "status": "approved"}
     if invoice["status"] == "rejected":
-        raise HTTPException(status_code=409, detail="Invoice was rejected and cannot be approved")
+        _refuse(conn, invoice_id, user_id, "approve", note, 409, "Invoice was rejected and cannot be approved")
     if invoice["document_type"] == "credit_note" or "credit_note" in invoice["review_reasons"]:
-        raise HTTPException(status_code=409, detail="Credit notes are never approved for payment (policy §2)")
+        _refuse(conn, invoice_id, user_id, "approve", note, 409,
+                "Credit notes are never approved for payment (policy §2)")
     if "duplicate" in invoice["review_reasons"]:
-        raise HTTPException(status_code=409, detail="Duplicates cannot be approved; reject instead (policy §4.4)")
-    if invoice["needs_review"] and not body.note.strip():
-        raise HTTPException(status_code=422, detail="A note is required to approve a reviewed document (policy §4.5)")
+        _refuse(conn, invoice_id, user_id, "approve", note, 409,
+                "Duplicates cannot be approved; reject instead (policy §4.4)")
+    if invoice["needs_review"] and not note.strip():
+        _refuse(conn, invoice_id, user_id, "approve", note, 422,
+                "A note is required to approve a reviewed document (policy §4.5)")
 
     # §4.2: the unique index makes a second approval by the same person a no-op.
     conn.execute("INSERT OR IGNORE INTO approvals (invoice_id, user_id, note) VALUES (?, ?, ?)",
-                 (invoice_id, user_id, body.note))
+                 (invoice_id, user_id, note))
     approvals = _approval_count(conn, invoice_id)
     status = invoice["status"]
+    outcome = f"recorded ({approvals} of {required})"
     if approvals >= required:
         # §4.6: only the request that flips the status creates the payment; the unique index backs it up.
         flipped = conn.execute("UPDATE invoices SET status = 'approved' WHERE id = ? AND status <> 'approved'",
@@ -101,7 +119,8 @@ def approve_invoice(invoice_id: int, body: DecisionRequest, conn=Depends(get_con
         if flipped == 1:
             conn.execute("INSERT OR IGNORE INTO payments (invoice_id, amount) VALUES (?, ?)",
                          (invoice_id, invoice["total"]))
-        status = "approved"
+        status, outcome = "approved", "approved"
+    _audit(conn, invoice_id, user_id, "approve", note, outcome)
     conn.commit()
     return {"id": invoice_id, "approvals": approvals, "required_approvals": required, "status": status}
 
@@ -111,13 +130,19 @@ def reject_invoice(invoice_id: int, body: DecisionRequest, conn=Depends(get_conn
     invoice = db.get_invoice(conn, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    user_id, note = body.user_id.strip(), body.note
+    if not user_id:
+        _refuse(conn, invoice_id, user_id, "reject", note, 422, "user_id is required")
     if invoice["status"] == "approved":
-        raise HTTPException(status_code=409, detail="Invoice is approved and has a payment instruction")
-    if invoice["status"] != "rejected":
+        _refuse(conn, invoice_id, user_id, "reject", note, 409,
+                "Invoice is approved and has a payment instruction")
+    if invoice["status"] == "rejected":
+        _audit(conn, invoice_id, user_id, "reject", note, "no change: already rejected")
+    else:
         conn.execute("UPDATE invoices SET status = 'rejected' WHERE id = ?", (invoice_id,))
-        conn.commit()
+        _audit(conn, invoice_id, user_id, "reject", note, "rejected")
+    conn.commit()
     return {"id": invoice_id, "status": "rejected"}
-
 
 @app.get("/api/stats")
 def stats(org_id: str = Depends(get_org), conn=Depends(get_conn)):

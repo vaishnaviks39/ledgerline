@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     latency_ms INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+    user_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    note TEXT,
+    outcome TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_invoice ON payments(invoice_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_approvals_invoice_user ON approvals(invoice_id, user_id);
 """
@@ -94,4 +103,8 @@ def get_invoice(conn: sqlite3.Connection, invoice_id: int) -> dict | None:
         "cost_inr": round(usage["cost_usd"] * USD_TO_INR, 4),
         "latency_ms": usage["latency_ms"],
     }
+    inv["audit"] = [dict(r) for r in conn.execute(
+    "SELECT user_id, action, note, outcome, created_at FROM audit_log WHERE invoice_id = ? ORDER BY id",
+    (invoice_id,),
+    ).fetchall()]
     return inv

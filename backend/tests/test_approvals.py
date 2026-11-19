@@ -92,3 +92,34 @@ def test_paid_invoice_cannot_be_rejected(api):
     response = client.post(f"/api/invoices/{invoice_id}/reject", json={"user_id": "farhan", "note": "no"})
     assert response.status_code == 409
     assert sql(db_path, "SELECT status FROM invoices WHERE id = ?", (invoice_id,))[0][0] == "approved"
+
+def audit(client, invoice_id):
+    return client.get(f"/api/invoices/{invoice_id}").json()["audit"]
+
+
+def test_rejection_is_audited(api):
+    client, _ = api
+    invoice_id = upload(client)
+    client.post(f"/api/invoices/{invoice_id}/reject", json={"user_id": "farhan", "note": "wrong bank"})
+    entry = audit(client, invoice_id)[-1]
+    assert (entry["user_id"], entry["action"], entry["note"]) == ("farhan", "reject", "wrong bank")
+    assert entry["created_at"]
+
+
+def test_approval_is_audited(api):
+    client, _ = api
+    invoice_id = upload(client)
+    approve(client, invoice_id, user="kavya", note="matches PO")
+    entry = audit(client, invoice_id)[-1]
+    assert (entry["user_id"], entry["action"], entry["note"], entry["outcome"]) == (
+        "kavya", "approve", "matches PO", "approved")
+
+
+def test_refused_approval_is_audited(api):
+    client, _ = api
+    upload(client, "first.txt")
+    duplicate_id = upload(client, "second.txt")
+    approve(client, duplicate_id, user="kavya", note="looks fine")
+    entry = audit(client, duplicate_id)[-1]
+    assert entry["user_id"] == "kavya"
+    assert entry["outcome"].startswith("refused")
