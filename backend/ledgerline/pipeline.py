@@ -11,9 +11,21 @@ from .llm.pricing import cost_usd
 from .models import Invoice, LineItem
 from .parsing import parse_amount, parse_date
 from .reference import ReferenceData
-from .validation import MODEL_ADDABLE_REASONS, normalize_name, run_checks
+from decimal import Decimal
+from .validation import MODEL_ADDABLE_REASONS, check_credit_note, normalize_name, run_checks
 
-HIGH_VALUE_THRESHOLD = 500000  # invoices above this need two approvals
+HIGH_VALUE_THRESHOLD = Decimal("500000.00")  # policy §4.1: ₹5,00,000.00 or more needs two approvals
+
+
+def required_approvals(inv: Invoice) -> int:
+    """Policy §4.1: credit notes 0; foreign currency 2; total ≥ ₹5,00,000.00 2; otherwise 1."""
+    if inv.document_type == "credit_note":
+        return 0
+    if (inv.currency or "INR").strip().upper() != "INR":
+        return 2
+    if inv.total is not None and Decimal(str(inv.total)) >= HIGH_VALUE_THRESHOLD:
+        return 2
+    return 1
 
 def vendor_country(ref: ReferenceData, data: dict) -> str:
     """Country of the matched vendor (GSTIN for domestic, normalised name otherwise); 'IN' if unknown."""
@@ -66,6 +78,9 @@ def process_document(
 ) -> dict:
     data, responses = extract(raw_text, ref)
     inv = normalize(data, month_first=vendor_country(ref, data) == "US")
+    # A credit note detected by code (e.g. e-invoice Typ CRN) overrides the model's document_type.
+    if check_credit_note(inv, raw_text):
+        inv.document_type = "credit_note"
 
     # Code decides routing (policy). The model may only add reasons in MODEL_ADDABLE_REASONS;
     # it can never remove a reason, and its yes/no answer is not used.
@@ -82,7 +97,7 @@ def process_document(
     # Keep the model's other suggestions visible to reviewers and for audit (policy).
     warnings = [f"model suggested {r} (not applied)" for r in model_raw if r not in review_reasons]
 
-    required_approvals = 2 if (inv.total or 0) > HIGH_VALUE_THRESHOLD else 1
+    approvals_needed = required_approvals(inv)
     status = "needs_review" if needs_review else "ready_for_approval"
 
     cur = conn.execute(
@@ -96,7 +111,7 @@ def process_document(
             inv.invoice_number, inv.invoice_date.isoformat() if inv.invoice_date else None, inv.currency,
             inv.subtotal, inv.cgst, inv.sgst, inv.igst, inv.round_off, inv.total, inv.bank_account, inv.ifsc,
             inv.po_number, inv.notes, json.dumps([asdict(i) for i in inv.line_items]), json.dumps(warnings),
-            int(needs_review), json.dumps(review_reasons), required_approvals, status,
+            int(needs_review), json.dumps(review_reasons), approvals_needed, status,
         ),
     )
     invoice_id = cur.lastrowid

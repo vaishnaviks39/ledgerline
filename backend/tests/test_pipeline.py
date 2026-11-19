@@ -40,3 +40,37 @@ def test_us_vendor_date_is_month_first(conn, ref, monkeypatch):
     invoice = run_with_reply(conn, ref, monkeypatch, supplier_name="CloudNimbus Inc.", supplier_gstin=None,
                              currency="USD", invoice_number="CN-2026-04417", invoice_date="04/03/2026")
     assert invoice["invoice_date"] == "2026-04-03"
+
+def test_exactly_five_lakh_needs_two_approvals(conn, ref, monkeypatch):
+    # dev_017: total is exactly ₹5,00,000.00
+    invoice = run_with_reply(conn, ref, monkeypatch, total="500000.00")
+    assert invoice["required_approvals"] == 2
+
+
+def test_just_under_five_lakh_needs_one_approval(conn, ref, monkeypatch):
+    invoice = run_with_reply(conn, ref, monkeypatch, total="499999.99")
+    assert invoice["required_approvals"] == 1
+
+
+def test_foreign_currency_invoice_needs_two_approvals(conn, ref, monkeypatch):
+    # dev_014: USD 1,298.00, dated 04/03/2026 (month first: 3 April)
+    invoice = run_with_reply(conn, ref, monkeypatch, supplier_name="CloudNimbus Inc.", supplier_gstin=None,
+                             currency="USD", invoice_number="CN-2026-04417", invoice_date="04/03/2026",
+                             total="1298.00")
+    assert invoice["required_approvals"] == 2
+
+
+def test_credit_note_needs_zero_approvals(conn, ref, monkeypatch):
+    # dev_007
+    invoice = run_with_reply(conn, ref, monkeypatch, document_type="credit_note")
+    assert invoice["required_approvals"] == 0
+
+
+def test_einvoice_crn_is_stored_as_credit_note_even_if_model_says_invoice(conn, ref, monkeypatch):
+    reply = json.dumps(dict(CANNED_EXTRACTION, document_type="invoice"))
+    client = FakeClient([reply, reply])
+    monkeypatch.setattr("ledgerline.extraction.get_client", lambda: client)
+    invoice = process_document(conn, ref, '{"DocDtls": {"Typ": "CRN", "No": "KT/CN/2026/006"}}', "doc_crn")
+    assert invoice["document_type"] == "credit_note"
+    assert invoice["required_approvals"] == 0
+    assert "duplicate" not in invoice["review_reasons"]
