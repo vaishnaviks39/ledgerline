@@ -44,3 +44,13 @@ def test_amounts_dates_and_gstin_are_not_masked():
     text = "GSTIN 27AAKCS4821M1ZW  Dated 25/04/2026  TOTAL 1,10,920.00  Qty 1200"
     masked, _ = mask_accounts(text)
     assert masked == text
+
+def test_hyphenated_invoice_number_is_not_masked():
+    # dev_014: "CN-2026-04417" was masked to "CN-XXXXX4417"
+    text = "Invoice number      CN-2026-04417"
+    assert mask_accounts(text)[0] == text
+
+
+def test_long_digit_run_inside_an_identifier_is_not_masked():
+    text = "Ref: INV-202604417"
+    assert mask_accounts(text)[0] == text
