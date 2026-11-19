@@ -33,13 +33,22 @@ def is_valid_gstin(gstin: str | None) -> bool:
     return GSTIN_PATTERN.match(gstin.strip().upper()) is not None
 
 
-def find_vendor(ref: ReferenceData, supplier_name: str | None) -> dict | None:
-    if not supplier_name:
+def normalize_name(name: str | None) -> str:
+    """Policy: supplier key for foreign documents: case-insensitive, no spaces or punctuation."""
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def find_vendor(ref: ReferenceData, inv: Invoice) -> dict | None:
+    """Policy: domestic suppliers by GSTIN alone; foreign suppliers by normalised legal name."""
+    if inv.currency == "INR":
+        gstin = (inv.supplier_gstin or "").strip().upper()
+        if not gstin:
+            return None
+        return next((v for v in ref.vendors if v["gstin"].strip().upper() == gstin), None)
+    key = normalize_name(inv.supplier_name)
+    if not key:
         return None
-    for vendor in ref.vendors:
-        if vendor["legal_name"].strip().lower() == supplier_name.strip().lower():
-            return vendor
-    return None
+    return next((v for v in ref.vendors if normalize_name(v["legal_name"]) == key), None)
 
 
 def check_vendor(vendor: dict | None) -> list[str]:
@@ -98,7 +107,7 @@ def check_bank_details(inv: Invoice, vendor: dict | None) -> list[str]:
 
 
 def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice) -> list[str]:
-    vendor = find_vendor(ref, inv.supplier_name)
+    vendor =  find_vendor(ref, inv)
     return (
         check_gstin(inv)
         + check_vendor(vendor)

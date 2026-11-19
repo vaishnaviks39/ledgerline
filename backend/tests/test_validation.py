@@ -1,7 +1,7 @@
 from datetime import date
 
 from ledgerline.models import Invoice, LineItem
-from ledgerline.validation import check_duplicate, check_tax_type, check_totals, is_valid_gstin
+from ledgerline.validation import check_duplicate, check_tax_type, check_totals, is_valid_gstin, run_checks
 
 SITARA_GSTIN = "27AAKCS4821M1ZW"
 NARMADA_GSTIN = "24AAOFN2207Q1ZX"
@@ -86,3 +86,21 @@ def test_totals_difference_of_exactly_one_rupee_is_within_tolerance():
 
 def test_totals_difference_over_one_rupee_is_a_mismatch():
     assert check_totals(make_invoice(total=119.01)) == ["totals_mismatch"]
+
+def test_domestic_vendor_matched_by_gstin_not_name(conn, ref):
+    # dev_019: name printed differently, GSTIN is Konkan Tooling's (V0008)
+    invoice = make_invoice(supplier_name="Konkan Tooling Pvt Ltd", supplier_gstin="27AAACK9034R1ZX",
+                           invoice_number="KT/2026/999")
+    assert "vendor_unknown" not in run_checks(conn, ref, invoice)
+
+
+def test_real_vendor_name_with_unknown_gstin_is_unknown(conn, ref):
+    # Sitara's name printed with a GSTIN that is not in the vendor master
+    invoice = make_invoice(supplier_gstin="27AAQCA8124J1ZA")
+    assert "vendor_unknown" in run_checks(conn, ref, invoice)
+
+
+def test_foreign_vendor_matched_by_normalised_name(conn, ref):
+    invoice = make_invoice(supplier_name="CLOUDNIMBUS, INC", supplier_gstin=None, currency="USD",
+                           cgst=0.0, sgst=0.0, invoice_number="CN-2026-99999")
+    assert "vendor_unknown" not in run_checks(conn, ref, invoice)
