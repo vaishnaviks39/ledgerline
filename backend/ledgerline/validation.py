@@ -30,10 +30,11 @@ def gstin_checksum(first14: str) -> str:
 
 
 def is_valid_gstin(gstin: str | None) -> bool:
-    """Validate a GSTIN's format and check digit."""
+    """Policy Appendix A: 15-character format and check character."""
     if not gstin:
         return False
-    return GSTIN_PATTERN.match(gstin.strip().upper()) is not None
+    gstin = gstin.strip().upper()
+    return GSTIN_PATTERN.fullmatch(gstin) is not None and gstin_checksum(gstin[:14]) == gstin[14]
 
 
 def normalize_name(name: str | None) -> str:

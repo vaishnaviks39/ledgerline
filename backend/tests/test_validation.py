@@ -225,3 +225,22 @@ def test_foreign_duplicate_matched_by_normalised_name(conn, ref):
     invoice = make_invoice(supplier_name="CLOUDNIMBUS INC", supplier_gstin=None, currency="USD",
                            invoice_number="CN 2026 03288", invoice_date=date(2026, 3, 3))
     assert check_duplicate(conn, ref, invoice) == ["duplicate"]
+
+def test_policy_worked_example_gstin_is_valid():
+    # AP policy Appendix A
+    assert is_valid_gstin("27AAPFU0939F1ZV")
+
+
+def test_gstin_with_wrong_check_character_is_invalid():
+    # dev_010: OCR changed 3390 to 3690, so the check character no longer matches
+    assert not is_valid_gstin("06AAEFO3690B1ZL")
+
+
+def test_gstin_with_trailing_characters_is_invalid():
+    assert not is_valid_gstin("27AAKCS4821M1ZWX")
+
+
+def test_checksum_failure_is_reported_as_gstin_invalid(conn, ref):
+    invoice = make_invoice(supplier_name="Orion Fasteners", supplier_gstin="06AAEFO3690B1ZL",
+                           invoice_number="OF-26-0398", cgst=0.0, sgst=0.0, igst=18.0)
+    assert "gstin_invalid" in run_checks(conn, ref, invoice)
