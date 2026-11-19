@@ -271,3 +271,39 @@ def test_line_arithmetic_within_one_rupee_is_fine(conn, ref, monkeypatch):
     monkeypatch.setenv("LEDGERLINE_FLAG_LINE_ITEM_ARITHMETIC", "1")
     invoice = make_invoice(line_items=[LineItem("Rounded rate", 3.0, 33.33, 100.00)])  # 99.99 vs 100.00
     assert "line_item_mismatch" not in run_checks(conn, ref, invoice)
+
+DISP_06_EMAIL = (
+    'From: "Shakti Castings Pvt. Ltd. - Accounts" <accounts@shakticastings.example>\n'
+    "To: ap@meridian-precision.example\n"
+    "Subject: Invoice SCPL/26-27/011 - Shakti Castings Pvt. Ltd.\n"
+    "Date: Tue, 28 Apr 2026 12:05:00 +0530\n"
+    'Content-Type: text/plain; charset="utf-8"\n'
+    "\n"
+    "Please find below the details of our invoice SCPL/26-27/011 dated 25/06/2026.\n"
+)
+
+
+def test_future_dated_is_not_checked_by_default(conn, ref, monkeypatch):
+    monkeypatch.delenv("LEDGERLINE_FLAG_FUTURE_DATED_INVOICE", raising=False)
+    invoice = make_invoice(**SHAKTI, invoice_date=date(2026, 6, 25))
+    assert "future_dated_invoice" not in run_checks(conn, ref, invoice, raw_text=DISP_06_EMAIL)
+
+
+def test_invoice_dated_after_its_email_is_flagged_when_flag_on(conn, ref, monkeypatch):
+    # disp_06: emailed 28 Apr 2026, invoice dated 25 Jun 2026
+    monkeypatch.setenv("LEDGERLINE_FLAG_FUTURE_DATED_INVOICE", "1")
+    invoice = make_invoice(**SHAKTI, invoice_date=date(2026, 6, 25))
+    assert "future_dated_invoice" in run_checks(conn, ref, invoice, raw_text=DISP_06_EMAIL)
+
+
+def test_invoice_dated_on_the_email_day_is_fine(conn, ref, monkeypatch):
+    monkeypatch.setenv("LEDGERLINE_FLAG_FUTURE_DATED_INVOICE", "1")
+    invoice = make_invoice(**SHAKTI, invoice_date=date(2026, 4, 28))
+    assert "future_dated_invoice" not in run_checks(conn, ref, invoice, raw_text=DISP_06_EMAIL)
+
+
+def test_document_without_email_header_is_not_checked(conn, ref, monkeypatch):
+    monkeypatch.setenv("LEDGERLINE_FLAG_FUTURE_DATED_INVOICE", "1")
+    invoice = make_invoice(**SHAKTI, invoice_date=date(2026, 6, 25))
+    raw = "TAX INVOICE\nInvoice No. : SCPL/26-27/011    Dated : 25/06/2026\n"
+    assert "future_dated_invoice" not in run_checks(conn, ref, invoice, raw_text=raw)

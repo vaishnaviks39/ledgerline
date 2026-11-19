@@ -13,6 +13,7 @@ from .reference import ReferenceData
 from decimal import Decimal
 from datetime import date
 from .flags import flag_on
+from email.utils import parsedate_to_datetime
 
 GSTIN_PATTERN = re.compile(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]")
 GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -215,6 +216,29 @@ def check_line_items(inv: Invoice) -> list[str]:
             return ["line_item_mismatch"]
     return []
 
+def email_sent_date(raw_text: str) -> date | None:
+    """The Date: header of an email document (header block only, and only if it has a From: line)."""
+    header = raw_text.replace("\r\n", "\n").split("\n\n", 1)[0]
+    if not re.search(r"^From:", header, re.MULTILINE):
+        return None
+    match = re.search(r"^Date:\s*(.+)$", header, re.MULTILINE)
+    if not match:
+        return None
+    try:
+        return parsedate_to_datetime(match[1].strip()).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def check_future_dated(inv: Invoice, raw_text: str) -> list[str]:
+    """Flag FUTURE_DATED_INVOICE (ruling on disp_06; not in AP_POLICY.md):
+    an emailed invoice dated after the email that delivered it."""
+    sent = email_sent_date(raw_text)
+    if sent and inv.invoice_date and inv.invoice_date > sent:
+        return ["future_dated_invoice"]
+    return []
+
+
 def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice, raw_text: str = "") -> list[str]:
     vendor = find_vendor(ref, inv)
     return (
@@ -228,5 +252,6 @@ def run_checks(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice, raw_t
         + check_duplicate(conn, ref, inv)
         + check_bank_details(inv, vendor)
         + (check_line_items(inv) if flag_on("LINE_ITEM_ARITHMETIC") else [])
+        + (check_future_dated(inv, raw_text) if flag_on("FUTURE_DATED_INVOICE") else [])
         + check_suspicious_content(raw_text)
     )
