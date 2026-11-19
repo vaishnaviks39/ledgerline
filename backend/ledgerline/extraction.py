@@ -52,12 +52,23 @@ def mask_accounts(text: str) -> tuple[str, dict[str, set[str]]]:
     return ACCOUNT_LIKE.sub(repl, text), found
 
 
-def restore_account(value, found: dict[str, set[str]]):
-    """Map the model's masked account back to the full number from the original document, if unambiguous."""
+def restore_account(value, found: dict[str, set[str]], document_text: str = ""):
+    """Map the model's bank account back to the full number in the original document.
+
+    A value that cannot be traced to the document was invented by the model and is dropped (None).
+    """
     if not value:
-        return value
-    candidates = found.get(re.sub(r"\D", "", str(value))[-4:], set())
-    return next(iter(candidates)) if len(candidates) == 1 else value
+        return None
+    text = str(value)
+    digits = re.sub(r"\D", "", text)
+    candidates = found.get(digits[-4:], set()) if len(digits) >= 4 else set()
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    if len(candidates) > 1:
+        return text  # ambiguous: keep it masked; the bank check then sends it to review
+    if digits and digits in document_text.replace(" ", ""):
+        return digits  # a short account the masking did not touch, copied as printed
+    return None  # not in the document: invented by the model
 
 
 def build_extraction_prompt(document_text: str, ref: ReferenceData | None = None) -> str:
@@ -109,5 +120,5 @@ def extract(document_text: str, ref: ReferenceData,
     second = client.complete(SYSTEM_PROMPT, build_verification_prompt(masked_text, data, ref))
     calls.append(second)
     data = _parse_json(second.text)
-    data["bank_account"] = restore_account(data.get("bank_account"), accounts)
+    data["bank_account"] = restore_account(data.get("bank_account"), accounts, document_text)
     return data, calls

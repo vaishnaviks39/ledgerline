@@ -54,3 +54,17 @@ def test_hyphenated_invoice_number_is_not_masked():
 def test_long_digit_run_inside_an_identifier_is_not_masked():
     text = "Ref: INV-202604417"
     assert mask_accounts(text)[0] == text
+
+DEV_014 = (get_settings().data_dir / "invoices" / "dev" / "dev_014.txt").read_text(encoding="utf-8")
+
+
+def test_bank_account_not_in_document_is_dropped(conn, ref, monkeypatch):
+    # dev_014 (CloudNimbus) shows no bank details; the model invented "****1234" as card on file
+    reply = json.dumps(dict(CANNED_EXTRACTION, supplier_name="CloudNimbus Inc.", supplier_gstin=None,
+                            currency="USD", invoice_number="CN-2026-04417", invoice_date="04/03/2026",
+                            bank_account="****1234", ifsc=None))
+    client = FakeClient([reply, reply])
+    monkeypatch.setattr("ledgerline.extraction.get_client", lambda: client)
+    invoice = process_document(conn, ref, DEV_014, "dev_014")
+    assert invoice["bank_account"] is None
+    assert "bank_details_changed" not in invoice["review_reasons"]
