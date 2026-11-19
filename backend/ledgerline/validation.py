@@ -90,18 +90,62 @@ def check_totals(inv: Invoice) -> list[str]:
     return [] if abs(computed - _dec(inv.total)) <= TOTALS_TOLERANCE else ["totals_mismatch"]
 
 
+def normalize_invoice_number(number: str | None) -> str:
+    """Policy §1: uppercase, without spaces and / - # . (leading zeros kept)."""
+    return re.sub(r"[\s/\-#.]", "", (number or "").upper())
+
+
+def financial_year(d: date | None) -> int | None:
+    """Policy §1: FY runs 1 April to 31 March; returns its starting year."""
+    if d is None:
+        return None
+    return d.year if d.month >= 4 else d.year - 1
+
+
+def supplier_key(gstin: str | None, name: str | None, currency: str | None = "INR") -> str:
+    """Policy §1: GSTIN for domestic documents, normalised legal name for foreign ones."""
+    gstin = (gstin or "").strip().upper()
+    if (currency or "INR").strip().upper() == "INR" and gstin:
+        return "G:" + gstin
+    return "N:" + normalize_name(name)
+
+
+def _to_date(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except (TypeError, ValueError):
+        return None
+
+
 def check_duplicate(conn: sqlite3.Connection, ref: ReferenceData, inv: Invoice) -> list[str]:
-    row = conn.execute(
-        "SELECT id FROM invoices WHERE supplier_name = ? AND invoice_number = ?",
-        (inv.supplier_name, inv.invoice_number),
-    ).fetchone()
-    if row:
-        return ["duplicate"]
+    """Policy §3: same supplier key + normalised number + FY, in paid_invoices.csv or earlier in this batch."""
+    if inv.document_type == "credit_note":
+        return []
+    number = normalize_invoice_number(inv.invoice_number)
+    if not number:
+        return []
+    key = supplier_key(inv.supplier_gstin, inv.supplier_name, inv.currency)
+    fy = financial_year(inv.invoice_date)
+
+    def same(other_key: str, other_number: str | None, other_date) -> bool:
+        if other_key != key or normalize_invoice_number(other_number) != number:
+            return False
+        other_fy = financial_year(_to_date(other_date))
+        return fy is None or other_fy is None or other_fy == fy  # unknown date: treat as a match (safe side)
+
     for paid in ref.paid_invoices:
-        if paid["supplier_name"] == inv.supplier_name and paid["invoice_number"] == inv.invoice_number:
+        if same(supplier_key(paid["supplier_gstin"], paid["supplier_name"]), paid["invoice_number"],
+                paid["invoice_date"]):
+            return ["duplicate"]
+    earlier = conn.execute(
+        "SELECT supplier_gstin, supplier_name, currency, invoice_number, invoice_date FROM invoices "
+        "WHERE document_type IS NOT 'credit_note'"
+    ).fetchall()
+    for row in earlier:
+        if same(supplier_key(row["supplier_gstin"], row["supplier_name"], row["currency"]),
+                row["invoice_number"], row["invoice_date"]):
             return ["duplicate"]
     return []
-
 
 def _digits(value: str | None) -> str:
     return re.sub(r"\D", "", value or "")

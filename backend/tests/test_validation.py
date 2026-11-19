@@ -184,3 +184,44 @@ def test_no_bank_details_on_document_is_not_a_change(conn, ref):
 def test_unknown_vendor_bank_details_are_not_compared(conn, ref):
     invoice = make_invoice(supplier_gstin="27AAQCA8124J1ZA", bank_account="50200081240001", ifsc="ZEPH0008124")
     assert "bank_details_changed" not in run_checks(conn, ref, invoice)
+
+MALWA = dict(supplier_name="Malwa Steel Traders", supplier_gstin="23AAHFM7702K1Z9", invoice_number="0007")
+
+
+def test_duplicate_found_despite_spacing_in_invoice_number(conn, ref):
+    # dev_015: printed "SIS / 26-27 / 0018", paid as "SIS/26-27/0018"
+    invoice = make_invoice(invoice_number="SIS / 26-27 / 0018", invoice_date=date(2026, 4, 2))
+    assert check_duplicate(conn, ref, invoice) == ["duplicate"]
+
+
+def test_duplicate_earlier_in_batch_matched_by_gstin_not_name(conn, ref):
+    # dev_006 processed first; dev_019 resends it with the name spelled differently
+    conn.execute("INSERT INTO invoices (org_id, document_id, raw_text, document_type, supplier_name, supplier_gstin, "
+                 "invoice_number, invoice_date, currency) VALUES ('meridian', 'dev_006', 'x', 'invoice', "
+                 "'Konkan Tooling Pvt. Ltd.', '27AAACK9034R1ZX', 'KT/2026/118', '2026-04-08', 'INR')")
+    invoice = make_invoice(supplier_name="Konkan Tooling Pvt Ltd", supplier_gstin="27AAACK9034R1ZX",
+                           invoice_number="KT/2026/118", invoice_date=date(2026, 4, 8))
+    assert check_duplicate(conn, ref, invoice) == ["duplicate"]
+
+
+def test_same_number_in_a_different_financial_year_is_not_a_duplicate(conn, ref):
+    # dev_016: Malwa 0007 dated 2026-04-14 (FY 2026-27); paid 0007 dated 2025-06-10 (FY 2025-26)
+    invoice = make_invoice(**MALWA, invoice_date=date(2026, 4, 14))
+    assert check_duplicate(conn, ref, invoice) == []
+
+
+def test_leading_zeros_are_significant(conn, ref):
+    invoice = make_invoice(invoice_number="SIS/26-27/018", invoice_date=date(2026, 4, 2))
+    assert check_duplicate(conn, ref, invoice) == []
+
+
+def test_credit_notes_are_not_checked_for_duplicates(conn, ref):
+    invoice = make_invoice(document_type="credit_note", invoice_number="SIS/26-27/0018", invoice_date=date(2026, 4, 2))
+    assert check_duplicate(conn, ref, invoice) == []
+
+
+def test_foreign_duplicate_matched_by_normalised_name(conn, ref):
+    # paid: CloudNimbus Inc., CN-2026-03288, 2026-03-03
+    invoice = make_invoice(supplier_name="CLOUDNIMBUS INC", supplier_gstin=None, currency="USD",
+                           invoice_number="CN 2026 03288", invoice_date=date(2026, 3, 3))
+    assert check_duplicate(conn, ref, invoice) == ["duplicate"]
