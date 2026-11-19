@@ -11,7 +11,7 @@ from .llm.pricing import cost_usd
 from .models import Invoice, LineItem
 from .parsing import parse_amount, parse_date
 from .reference import ReferenceData
-from .validation import run_checks
+from .validation import MODEL_ADDABLE_REASONS, run_checks
 
 HIGH_VALUE_THRESHOLD = 500000  # invoices above this need two approvals
 
@@ -57,11 +57,22 @@ def process_document(
 ) -> dict:
     data, responses = extract(raw_text, ref)
     inv = normalize(data)
-    warnings = run_checks(conn, ref, inv)
 
-    # v0.3: the model applies the AP policy itself (it has the full policy text in its prompt).
-    needs_review = bool(data.get("requires_review", False))
-    review_reasons = list(data.get("review_reasons") or [])
+    # Code decides routing (policy). The model may only add reasons in MODEL_ADDABLE_REASONS;
+    # it can never remove a reason, and its yes/no answer is not used.
+
+    code_reasons = run_checks(conn, ref, inv)
+    model_raw = data.get("review_reasons") or []
+
+    if isinstance(model_raw, str):
+        model_raw = [model_raw]
+
+    model_added = [r for r in model_raw if r in MODEL_ADDABLE_REASONS]
+    review_reasons = sorted(set(code_reasons) | set(model_added))
+    needs_review = bool(review_reasons)
+    # Keep the model's other suggestions visible to reviewers and for audit (policy).
+    warnings = [f"model suggested {r} (not applied)" for r in model_raw if r not in review_reasons]
+
     required_approvals = 2 if (inv.total or 0) > HIGH_VALUE_THRESHOLD else 1
     status = "needs_review" if needs_review else "ready_for_approval"
 

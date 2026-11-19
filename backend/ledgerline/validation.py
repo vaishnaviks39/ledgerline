@@ -16,6 +16,8 @@ GSTIN_PATTERN = re.compile(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]")
 GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 BUYER_STATE_CODE = "27"  # Maharashtra
 TOTALS_TOLERANCE = Decimal("1.00")
+# Reasons the model may add on top of the code's checks. Everything else is decided by code only.
+MODEL_ADDABLE_REASONS = {"suspicious_content"}
 
 
 def gstin_checksum(first14: str) -> str:
